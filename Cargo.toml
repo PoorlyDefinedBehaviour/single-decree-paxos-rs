@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.75"
+axum = "0.6.20"
 futures = "0.3.28"
-tarpc = { version = "0.33.0", features = ["tokio1"] }
+serde = "1.0.188"
+tarpc = { version = "0.33.0", features = ["tokio1", "serde", "serde-transport-json", "serde-transport", "tcp"] }
 tokio = { version = "1.32.0", features = ["macros", "rt-multi-thread", "sync", "fs", "io-util"] }

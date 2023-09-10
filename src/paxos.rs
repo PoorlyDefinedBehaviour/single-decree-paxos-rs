@@ -19,7 +19,7 @@ pub struct Paxos {
     address: SocketAddr,
 
     /// The next proposal id that will be sent to the acceptors.
-    next_proposal_id: u64,
+    current_proposal_id: u64,
 
     /// The address of each acceptor.
     acceptors: Vec<SocketAddr>,
@@ -118,7 +118,7 @@ impl Paxos {
 
         Ok(Self {
             address,
-            next_proposal_id: 1,
+            current_proposal_id: 0,
             acceptors,
             acceptor_clients: HashMap::new(),
 
@@ -149,6 +149,8 @@ impl Paxos {
     }
 
     pub async fn propose(&mut self, value: Vec<u8>) -> Result<()> {
+        self.current_proposal_id += 1;
+
         let mut futures = Vec::with_capacity(self.acceptors.len());
 
         for i in 0..self.acceptors.len() {
@@ -166,7 +168,7 @@ impl Paxos {
             };
 
             let request = PrepareRequest {
-                proposal_id: self.next_proposal_id,
+                proposal_id: self.current_proposal_id,
             };
             futures.push(async move { client.prepare(context::current(), request).await });
         }
@@ -214,7 +216,7 @@ impl Paxos {
             ));
         }
 
-        self.next_proposal_id = std::cmp::max(self.next_proposal_id, highest_proposal_id);
+        self.current_proposal_id = std::cmp::max(self.current_proposal_id, highest_proposal_id);
 
         match accepted_value {
             None => self
@@ -222,11 +224,14 @@ impl Paxos {
                 .await
                 .context("sending accept requests with proposed value"),
             Some(accepted_value) => {
-                self.accept(accepted_value)
+                self.accept(accepted_value.clone())
                     .await
                     .context("sending accept requests with already accepted value")?;
 
-                Err(anyhow!("a value has already been accepted"))
+                Err(anyhow!(
+                    "a value has already been accepted: {}",
+                    String::from_utf8_lossy(&accepted_value)
+                ))
             }
         }
     }
@@ -249,7 +254,7 @@ impl Paxos {
             };
 
             let request = AcceptRequest {
-                proposal_id: self.next_proposal_id,
+                proposal_id: self.current_proposal_id,
                 proposal_value: value.clone(),
             };
             futures.push(async move { client.accept(context::current(), request).await });
@@ -280,7 +285,7 @@ impl Paxos {
                     continue;
                 }
                 Ok(response) => {
-                    if self.next_proposal_id < response.proposal_id {
+                    if self.current_proposal_id < response.proposal_id {
                         return Err(anyhow!(
                             "acceptor has seen a proposal id greater than our own"
                         ));
